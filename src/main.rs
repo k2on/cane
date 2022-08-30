@@ -13,21 +13,139 @@ use termion::raw::IntoRawMode;
 use termion::input::TermRead;
 use termion::event::Key;
 
+const MAX_SUGGESTIONS: usize = 5;
+
 
 fn main() {
-    start_new_cool_repl();
+    suggesting_start();
+}
 
-    // let command =  "cat myfile";
-    // let result = get_command_result(command);
-    // match result {
-    //     Ok(res) => println!("{}", res),
-    //     Err(err) => eprintln!("{}", err),
-    // }
+fn suggesting_start() {
+    let mut stdout = stdout().into_raw_mode().unwrap();
+    let     stdin = stdin();
+
+    let prompt = "> ";
+
+    write!(stdout, "{}", prompt).unwrap();
+
+    stdout.flush().unwrap();
+
+    let mut suggester: Suggester = Default::default();
+    suggester.suggestions = vec![
+        "hello there 1".to_string(),
+        "hsdfs 2".to_string(),
+        "my name jeff 3".to_string(),
+        "xdxdxd 4".to_string(),
+        "ok there 5".to_string(),
+    ];
+
+    for key in stdin.keys() {
+        match key.unwrap() {
+            Key::Char('\n') => { },
+            Key::Ctrl('c') => { write!(stdout, "^C\r\n").unwrap(); break; }
+            Key::Down => suggestion_down(&mut suggester),
+            Key::Backspace => {},
+            Key::Char(key) => insert_char(&mut suggester, key),
+            _ => {},
+        }
+
+        render(&mut suggester, &prompt, &mut stdout).unwrap();
+        stdout.flush().unwrap();
+    }
+
+
 
 }
 
-fn get_command_result(command: &str) -> Result<String, Error> {
+#[derive(Default)]
+struct Suggester {
+    buffer: Vec<char>,
+    buffer_cursor: usize,
+    // prompt_display: Vec<char>,
+    suggestions: Vec<String>,
+    suggestion_cursor: usize,
+}
 
+fn suggestion_down(suggester: &mut Suggester) {
+    if suggester.suggestion_cursor >= suggester.suggestions.len() - 1 { return }
+
+    suggester.suggestion_cursor += 1;
+
+    // suggester.buffer = suggester.suggestions[suggester.suggestion_cursor].chars().collect();
+    // suggester.buffer_cursor = suggester.buffer.len();
+
+
+    // suggester.prompt_display = if suggester.suggestion_cursor > 0 { suggester.suggestions[suggester.suggestion_cursor].chars().collect() } else { suggester.buffer.clone() };
+}
+
+fn insert_char(suggester: &mut Suggester, x: char) {
+    let idx_suggestion = suggester.suggestion_cursor;
+
+    if idx_suggestion > 0 {
+        suggester.buffer = suggester.suggestions[suggester.suggestion_cursor - 1].chars().collect();
+        suggester.suggestion_cursor = 0;
+
+        suggester.buffer_cursor = suggester.buffer.len();
+    }
+
+    let idx = suggester.buffer_cursor;
+
+    suggester.buffer.insert(idx,  x);
+    suggester.buffer_cursor += 1;
+
+    // suggester.prompt_display = suggester.buffer.clone();
+}
+
+fn render(suggester: &Suggester, prompt: &str, sink: &mut impl Write) -> io::Result<()> {
+    let current: String = suggester.buffer.iter().collect();
+    // let display: String = suggester.prompt_display.iter().collect();
+
+    // IDK if this is indexing correctly
+    let display = if suggester.suggestion_cursor == 0 { current.clone() } else { suggester.suggestions[suggester.suggestion_cursor - 1].clone() };
+
+    write!(sink, "\r{}{}{}\r\n", clear::AfterCursor, prompt, &display).unwrap();
+
+    
+
+    // let mut prelines = String::new();
+    // if suggester.suggestion_cursor == 0 {
+    //     prelines += "> ";
+    // }
+    // prelines += &current;
+    // write!(sink, "{}\r\n", prelines)?;
+    
+
+
+    // let base = vec![current];
+    // let idk: Vec<String> = base.into_iter().chain(suggester.suggestions.into_iter()).collect();
+
+    let mut suggestions: Vec<&String> = vec![&current];
+
+    let base = &suggester.suggestions;
+
+    suggestions.extend(base.iter());
+
+
+
+
+    for (idx, line) in suggestions.iter().take(MAX_SUGGESTIONS).enumerate() {
+        let selected = idx == suggester.suggestion_cursor;
+        if selected { write!(sink, "> ")? }
+        write!(sink, "{}\r\n", line)?;
+    }
+
+
+    let right = if suggester.suggestion_cursor == 0 { prompt.len() + suggester.buffer_cursor} else { prompt.len() + display.len() };
+
+    write!(sink, "{}{}",
+        cursor::Up((MAX_SUGGESTIONS.min(suggestions.len()) + 1).try_into().unwrap()),
+        cursor::Right((right).try_into().unwrap()))?;
+
+    Ok(())
+}
+
+
+fn get_command_result(command: &str) -> Result<String, Error> {
     let result = Command::new("sh")
         .args(["-c", command])
         .output();
@@ -51,170 +169,5 @@ fn handle_output(output: Output) -> Result<String, Error> {
         }
     } else {
         Result::Err(Error::new(ErrorKind::InvalidData, "No command status code"))
-    }
-}
-
-
-fn start_new_cool_repl() {
-    // TODO: check if the stdin is tty
-    // If it is not maybe switch to the old/simplified REPL
-    let prompt = "> ";
-    let mut stdout = stdout().into_raw_mode().unwrap();
-    let stdin = stdin();
-    write!(stdout, "{}", prompt).unwrap();
-    stdout.flush().unwrap();
-
-    let mut new_cool_repl: NewCoolRepl = Default::default();
-
-    for key in stdin.keys() {
-        match key.unwrap() {
-            Key::Char('\n') => {
-                write!(stdout, "\r\n").unwrap();
-                if &new_cool_repl.take() == "quit" {
-                    break
-                }
-            }
-            Key::Ctrl('a') | Key::Home => new_cool_repl.home(),
-            Key::Ctrl('e') | Key::End => new_cool_repl.end(),
-            Key::Left => new_cool_repl.left_char(),
-            Key::Right => new_cool_repl.right_char(),
-            Key::Ctrl('j') | Key::Down => new_cool_repl.down(),
-            Key::Ctrl('k') | Key::Up => new_cool_repl.up(),
-            Key::Ctrl('c') => {
-                write!(stdout, "^C\r\n").unwrap();
-                break;
-            }
-            Key::Ctrl('b') => new_cool_repl.left_word(),
-            Key::Ctrl('w') => new_cool_repl.right_word(),
-            Key::Char(key) => {
-                new_cool_repl.insert_char(key);
-                new_cool_repl.popup.clear();
-
-
-
-                let command =  "cat myfile";
-                let result = get_command_result(command);
-                match result {
-                    Ok(res) => {
-                        for line in res.lines() {
-                            new_cool_repl.popup.push(format!("{}", line));
-                        }
-                    },
-                    Err(err) => {
-                        eprintln!("{}", err); 
-                    },
-                }
-            },
-            Key::Backspace => new_cool_repl.backspace(),
-            _ => {},
-        }
-        new_cool_repl.render(prompt, &mut stdout).unwrap();
-        stdout.flush().unwrap();
-    }
-}
-
-
-
-#[derive(Default)]
-pub struct NewCoolRepl {
-    pub buffer: Vec<char>,
-    pub buffer_cursor: usize,
-    pub popup: Vec<String>,
-    pub popup_cursor: usize,
-}
-
-impl NewCoolRepl {
-    pub fn clear(&mut self) {
-        self.buffer.clear();
-        self.buffer_cursor = 0;
-        self.popup.clear();
-        self.popup_cursor = 0;
-    }
-
-    pub fn take(&mut self) -> String {
-        let result = self.buffer.iter().collect();
-        self.clear();
-        result
-    }
-
-    pub fn insert_char(&mut self, x: char) {
-        self.buffer.insert(self.buffer_cursor, x);
-        self.buffer_cursor += 1;
-    }
-
-    pub fn backspace(&mut self) {
-        if self.buffer_cursor > 0 {
-            self.buffer.remove(self.buffer_cursor - 1);
-            self.buffer_cursor -= 1;
-        }
-    }
-
-    pub fn home(&mut self) {
-        self.buffer_cursor = 0;
-    }
-
-    pub fn end(&mut self) {
-        self.buffer_cursor = self.buffer.len();
-    }
-
-    pub fn up(&mut self) {
-        if self.popup_cursor > 0 {
-            self.popup_cursor -= 1
-        }
-    }
-
-    pub fn down(&mut self) {
-        if self.popup_cursor < self.popup.len() - 1 {
-            self.popup_cursor += 1;
-            self.buffer = self.popup[self.popup_cursor].chars().collect()
-        }
-    }
-
-    pub fn left_word(&mut self) {
-        while self.buffer_cursor > 0 && self.buffer_cursor <= self.buffer.len() && !self.buffer.get(self.buffer_cursor - 1).unwrap().is_alphanumeric() {
-            self.buffer_cursor -= 1;
-        }
-        while self.buffer_cursor > 0 && self.buffer_cursor <= self.buffer.len() && self.buffer.get(self.buffer_cursor - 1).unwrap().is_alphanumeric() {
-            self.buffer_cursor -= 1;
-        }
-    }
-
-    pub fn right_word(&mut self) {
-        while self.buffer_cursor < self.buffer.len() && !self.buffer.get(self.buffer_cursor).unwrap().is_alphanumeric() {
-            self.buffer_cursor += 1;
-        }
-        while self.buffer_cursor < self.buffer.len() && self.buffer.get(self.buffer_cursor).unwrap().is_alphanumeric() {
-            self.buffer_cursor += 1;
-        }
-    }
-
-    pub fn left_char(&mut self) {
-        if self.buffer_cursor > 0 {
-            self.buffer_cursor -= 1;
-        }
-    }
-
-    pub fn right_char(&mut self) {
-        if self.buffer_cursor < self.buffer.len() {
-            self.buffer_cursor += 1;
-        }
-    }
-
-    pub fn render(&self, prompt: &str, sink: &mut impl Write) -> io::Result<()> {
-        const POPUP_SIZE: usize = 5;
-        let buffer: String = self.buffer.iter().collect();
-        write!(sink, "\r{}{}{}\r\n", clear::AfterCursor, prompt, &buffer)?;
-        for (index, line) in self.popup.iter().take(POPUP_SIZE).enumerate() {
-            if index == self.popup_cursor {
-                write!(sink, ">")?
-            } else {
-                write!(sink, " ")?
-            }
-            write!(sink, " {}\r\n", line)?;
-        }
-        write!(sink, "{}{}",
-               cursor::Up((POPUP_SIZE.min(self.popup.len()) + 1).try_into().unwrap()),
-               cursor::Right((prompt.len() + self.buffer_cursor).try_into().unwrap()))?;
-        Ok(())
     }
 }
