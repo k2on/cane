@@ -9,15 +9,32 @@ use termion::raw::IntoRawMode;
 use termion::input::TermRead;
 use termion::event::Key;
 
+use clap::{arg, command};
+
 const MAX_SUGGESTIONS: usize = 5;
+
+struct Options<'a> {
+    finish_cmd: Option<&'a String>,
+}
 
 
 fn main() {
-    let command =  "echo \"{}\" | bc";
-    suggesting_start(command);
+    let matches = command!()
+        .arg(arg!(<exec_cmd> "The command to execute"))
+        .arg(arg!(-f --finish [finish] "On enter, the final value will get piped to this command").required(false))
+        .get_matches();
+    
+    let exec_cmd = matches.get_one::<String>("exec_cmd").expect("execution command is required");
+    let finish_cmd = matches.get_one::<String>("finish");
+    
+    let options = &Options {
+        finish_cmd
+    };
+
+    suggesting_start(&exec_cmd, options);
 }
 
-fn suggesting_start(command: &str) {
+fn suggesting_start(command: &str, options: &Options) {
     let mut stdout = stdout().into_raw_mode().unwrap();
     let     stdin = stdin();
 
@@ -31,7 +48,28 @@ fn suggesting_start(command: &str) {
 
     for key in stdin.keys() {
         match key.unwrap() {
-            Key::Char('\n') => { },
+            Key::Char('\n') => {
+
+                write!(stdout, "{}", clear::CurrentLine).unwrap();
+                write!(stdout, "{}", cursor::Down(1)).unwrap();
+                write!(stdout, "{}", clear::CurrentLine).unwrap();
+                
+                stdout.flush().unwrap();
+
+                if let Some(cmd) = options.finish_cmd {
+
+                    let input = if suggester.suggestion_cursor == 0 {
+                        suggester.buffer.iter().collect()
+                    } else {
+                        suggester.suggestions[suggester.suggestion_cursor - 1].clone()
+                    };
+
+                    let command = format!("echo \"{}\" | {}", input, cmd);
+                    get_command_result(&command).unwrap();
+                }
+
+                break;
+            },
             Key::Ctrl('c') => { write!(stdout, "^C\r\n").unwrap(); break; }
             Key::Down => suggestion_down(&mut suggester),
             Key::Up => suggestion_up(&mut suggester),
@@ -41,7 +79,7 @@ fn suggesting_start(command: &str) {
                 suggester.suggestions.clear();
 
                 let input: String = suggester.buffer.iter().collect();
-                let cmd = command.replace("{}", &input);
+                let cmd = format!("echo {} | {}", input, command);
                 let result = get_command_result(&cmd);
                 match result {
                     Ok(res) => {
