@@ -35,9 +35,9 @@ fn suggesting_start(command: &str) {
             Key::Ctrl('c') => { write!(stdout, "^C\r\n").unwrap(); break; }
             Key::Down => suggestion_down(&mut suggester),
             Key::Up => suggestion_up(&mut suggester),
-            Key::Backspace => {},
+            Key::Backspace => char_delete(&mut suggester),
             Key::Char(key) => {
-                insert_char(&mut suggester, key);
+                char_insert(&mut suggester, key);
                 suggester.suggestions.clear();
 
                 let input: String = suggester.buffer.iter().collect();
@@ -82,7 +82,15 @@ fn suggestion_up(suggester: &mut Suggester) {
     suggester.suggestion_cursor -= 1;
 }
 
-fn insert_char(suggester: &mut Suggester, x: char) {
+fn char_delete(suggester: &mut Suggester) {
+    if suggester.suggestion_cursor != 0 { return }
+    if suggester.buffer_cursor == 0 { return }
+
+    suggester.buffer.remove(suggester.buffer_cursor - 1);
+    suggester.buffer_cursor -= 1;
+}
+
+fn char_insert(suggester: &mut Suggester, x: char) {
     let idx_suggestion = suggester.suggestion_cursor;
 
     if idx_suggestion > 0 {
